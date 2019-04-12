@@ -1,0 +1,8 @@
+*.binary
+*.so
+*/obj/*
+*/obj_test/*
+*/test_bin/*
+*/bin/*
+
+run_shared
