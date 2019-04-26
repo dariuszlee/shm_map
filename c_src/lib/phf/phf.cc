@@ -31,6 +31,8 @@
 #include <errno.h>    /* errno */
 #include <assert.h>   /* assert(3) */
 
+#include <iostream>
+
 #if !PHF_NO_LIBCXX
 #include <algorithm>   /* std::sort */
 #include <iterator>    /* std::begin std::end */

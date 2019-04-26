@@ -7,29 +7,11 @@
 #include <vector>
 #include <set>
 
-#include <boost/interprocess/shared_memory_object.hpp>
-#include <boost/interprocess/mapped_region.hpp>
-
 #include "phf.h"
 
 #include "file_mem_utils.cpp"
 
 using namespace boost::interprocess;
-
-bool check_mem_exists()
-{
-    return false;    
-}
-
-mapped_region create_mem()
-{
-    shared_memory_object shdmem{open_or_create, "Boost", read_write};
-    shdmem.truncate(1024);
-    mapped_region region{shdmem, read_write};
-    return region;
-}
-
-/* mapped_region */
 
 int get_mem(const mapped_region& p_region)
 {
@@ -46,8 +28,8 @@ void set_mem(const mapped_region& p_region, int p_node_id)
 std::map<std::string, float> load_file()
 {
     std::map<std::string,float> node_weights;
-    std::ifstream infile("/home/dariuslee/motionlogic/dumps//weighted_graph.csv");
-    /* std::ifstream infile("./weight_graph_sample.csv"); */
+    /* std::ifstream infile("/home/dariuslee/motionlogic/dumps//weighted_graph.csv"); */
+    std::ifstream infile("./weight_graph_sample.csv");
 
     std::string line;
     while(std::getline(infile, line))
@@ -124,16 +106,7 @@ std::string* generate_array(std::map<std::string,float> to_array){
     return ret_data;
 }
 
-int main(int argc, char *argv[])
-{
-    /* mapped_region region = create_mem(); */
-    /* /1* set_mem(region, 200); *1/ */
-    /* std::cout << "Memory is: " << get_mem(region) << std::endl; */
-
-    /* /1* mapped_region region{shdmem, read_write}; *1/ */
-    /* /1* int *il = static_cast<int*>(region.get_address()); *1/ */
-    /* /1* *il = 100; *1/ */
-    /* bool removed = shared_memory_object::remove("Boost"); */
+void create_file(phf* new_alg){
     std::map<std::string,float> file_as_map = load_file();
     std::string * data = generate_array(file_as_map);
     std::cout << "FINISHED_LOADING_FILE" << std::endl;
@@ -144,26 +117,68 @@ int main(int argc, char *argv[])
             100, (phf_seed_t)0);
     std::cout << "Finished_building hash" << std::endl;
 
-    write_binary(alg_def, 0);
+    write_binary(alg_def, file_as_map);
     std::cout << "Finished writing hash" << std::endl;
 
-    phf* new_alg = read_binary_hash();
-    std::cout << "Finished reloading hash" << std::endl;
+    /* phf* new_alg = read_binary_hash(); */
+    /* std::cout << "Finished reloading hash" << std::endl; */
 
-    check_phfs(alg_def, new_alg);
+    /* check_phfs(alg_def, new_alg); */
+    /* std::cout << "Finished checking phf" << std::endl; */
 
-    std::set<size_t> res;
-    size_t num_of_matches = 0;
-    for(size_t i = 0; i != file_as_map.size(); i++){
-        size_t hash = PHF::hash<std::string>(alg_def, data[i]);
-        size_t new_hash = PHF::hash<std::string>(new_alg, data[i]);
-        if(hash != new_hash){
-            num_of_matches++;
+    /* std::set<size_t> res; */
+    /* size_t num_of_matches = 0; */
+    /* for(size_t i = 0; i != file_as_map.size(); i++){ */
+    /*     size_t hash = PHF::hash<std::string>(alg_def, data[i]); */
+    /*     size_t new_hash = PHF::hash<std::string>(new_alg, data[i]); */
+    /*     if(hash != new_hash){ */
+    /*         num_of_matches++; */
+    /*     } */
+    /*     res.insert(hash); */
+    /* } */
+    /* std::cout << "Number of misses: " << num_of_matches << std::endl; */
+    /* std::cout << "Finished hashing. Size of hash:" << res.size() << std::endl; */
+
+}
+
+int main(int argc, char *argv[])
+{
+    /* mapped_region region = create_mem(); */
+    /* /1* set_mem(region, 200); *1/ */
+    /* std::cout << "Memory is: " << get_mem(region) << std::endl; */
+
+    /* /1* mapped_region region{shdmem, read_write}; *1/ */
+    /* /1* int *il = static_cast<int*>(region.get_address()); *1/ */
+    /* /1* *il = 100; *1/ */
+    /* bool removed = shared_memory_object::remove("Boost"); */
+
+    std::map<std::string,float> file = load_file();
+    std::string * data = generate_array(file);
+
+    phf * alg_def = new phf;
+    PHF::init<std::string, false>(alg_def, data, file.size(), 1, 
+            100, (phf_seed_t)0);
+    std::cout << "Finished_building hash" << std::endl;
+
+    float* float_data = write_binary(alg_def, file);
+    std::cout << "Finished writing hash" << std::endl;
+
+    ShareMemDict<float> new_alg = reset_shared_mem<float>("file.binary");
+    for (auto i = file.begin(); i != file.end(); ++i) {
+        float query = 0;
+        bool res = new_alg.get(i->first, query);
+        size_t hash = new_alg.hash(i->first);
+        if(query != i->second){
+            std::cout << "Failed: " << i->first << " " <<i->second << " " << query << std::endl;
+            std::cout << "Failed hash: " << hash << std::endl;
+            std::cout << "Data: " << (float_data[hash]) << std::endl;
         }
-        res.insert(hash);
+        else {
+            /* std::cout << "Pass: " << i->first << " " <<i->second << " " << query << std::endl; */
+        }
     }
-    std::cout << "Number of misses: " << num_of_matches << std::endl;
-
-    std::cout << "Finished hashing. Size of hash:" << res.size() << std::endl;
+    float query = 0;
+    std::cout << "illegal hash " << new_alg.get("asdfasdfasdf", query) << query << std::endl;
+    /* create_file(new_alg); */
     return 0;
 }
