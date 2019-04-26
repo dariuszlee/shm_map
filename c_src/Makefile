@@ -21,8 +21,8 @@ obj_test/%.o: test/%.cpp
 obj/%.o: src/%.c
 	gcc -I$(INCLUDEDIR) $? -c -o $@
 
-run_shared: src/shared_mem_starter.cpp
-	g++ -Wall -Ilib/phf -std=c++11 $? -o run_shared -lphf -L/home/dariuslee/shm_mem_spike/c_src/lib/phf -lrt -lpthread
+run_shared: src/shared_mem_starter.cpp src/file_mem_utils.cpp src/file_loader.cpp
+	g++ -Wall -Ilib/phf -std=c++11 src/shared_mem_starter.cpp -o run_shared -lphf -L/home/dariuslee/shm_mem_spike/c_src/lib/phf -lrt -lpthread
 
 run: run_shared
 	export LD_LIBRARY_PATH=/home/dariuslee/shm_mem_spike/c_src/lib/phf:/usr/lib/

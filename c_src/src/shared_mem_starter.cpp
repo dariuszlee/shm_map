@@ -96,7 +96,8 @@ bool check_uniqueness(const std::vector<size_t>& hashes, size_t shift){
     return current_run;
 }
 
-std::string* generate_array(std::map<std::string,float> to_array){
+template<class T>
+std::string* generate_array(std::map<std::string,T> to_array){
     std::string* ret_data = new std::string[to_array.size()];
     size_t j = 0;
     for (auto i = to_array.begin(); i != to_array.end(); ++i) {
@@ -141,17 +142,8 @@ void create_file(phf* new_alg){
 
 }
 
-int main(int argc, char *argv[])
+void test()
 {
-    /* mapped_region region = create_mem(); */
-    /* /1* set_mem(region, 200); *1/ */
-    /* std::cout << "Memory is: " << get_mem(region) << std::endl; */
-
-    /* /1* mapped_region region{shdmem, read_write}; *1/ */
-    /* /1* int *il = static_cast<int*>(region.get_address()); *1/ */
-    /* /1* *il = 100; *1/ */
-    /* bool removed = shared_memory_object::remove("Boost"); */
-
     std::map<std::string,float> file = load_file();
     std::string * data = generate_array(file);
 
@@ -165,10 +157,12 @@ int main(int argc, char *argv[])
 
     ShareMemDict<float> new_alg = reset_shared_mem<float>("file.binary");
     for (auto i = file.begin(); i != file.end(); ++i) {
-        float query = 0;
-        bool res = new_alg.get(i->first, query);
+        float* query = 0;
+        size_t num_eles = 0;
+        bool res = new_alg.get(i->first, query, num_eles);
+
         size_t hash = new_alg.hash(i->first);
-        if(query != i->second){
+        if(*query != i->second){
             std::cout << "Failed: " << i->first << " " <<i->second << " " << query << std::endl;
             std::cout << "Failed hash: " << hash << std::endl;
             std::cout << "Data: " << (float_data[hash]) << std::endl;
@@ -177,8 +171,44 @@ int main(int argc, char *argv[])
             /* std::cout << "Pass: " << i->first << " " <<i->second << " " << query << std::endl; */
         }
     }
-    float query = 0;
-    std::cout << "illegal hash " << new_alg.get("asdfasdfasdf", query) << query << std::endl;
-    /* create_file(new_alg); */
-    return 0;
+    float* query = 0;
+    size_t num_eles = 0;
+    std::cout << "illegal hash " << new_alg.get("asdfasdfasdf", query, num_eles) << query << std::endl;
+};
+
+void test_vector()
+{
+    std::map<std::string, std::vector<uint32_t>> file = load_node_cilacs();
+    std::string * data = generate_array(file);
+
+    phf * alg_def = new phf;
+    PHF::init<std::string, false>(alg_def, data, file.size(), 1, 
+            100, (phf_seed_t)0);
+    std::cout << "Finished_building hash" << std::endl;
+
+    int** int_data = write_binary(alg_def, file);
+    std::cout << "Finished writing hash " << std::endl;
+    std::cout << "FIRST ELE: " << int_data[0][0] << std::endl;
+
+    ShareMemDict<uint32_t> new_alg = reset_shared_mem<uint32_t>("file.binary");
+    for (auto i = file.begin(); i != file.end(); ++i) {
+        uint32_t* query = 0;
+        size_t eles;
+        new_alg.get(i->first, query, eles);
+        size_t hash = new_alg.hash(i->first);
+        for (int j = 0; j < eles; j++) {
+            std::cout << "HASH " << hash << " RETURNED " << (query[j])  << " data " << int_data[hash][j] << std::endl;
+        }
+
+        /* if(query[0] != int_data[hash]){ */
+        /*     std::cout << "Failed: " << i->first << " " <<i->second << " " << query << std::endl; */
+        /*     std::cout << "Failed hash: " << hash << std::endl; */
+        /*     std::cout << "Data: " << (int_data[hash]) << std::endl; */
+        /* } */
+    }
+}
+
+int main(int argc, char *argv[])
+{
+    test_vector();
 }

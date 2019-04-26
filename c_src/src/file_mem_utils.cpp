@@ -7,6 +7,8 @@
 
 #include <sstream>
 
+#include "file_loader.cpp"
+
 #include "phf.h"
 
 #include <boost/interprocess/managed_shared_memory.hpp>
@@ -26,10 +28,12 @@ struct HashTarget {
     /*     key_hash(key_hash), value(value_address), num_of_items(num_of_items){} */
     HashTarget(){}
     HashTarget(size_t key_hash, size_t value_address) : 
-        key_hash(key_hash), value(value_address), num_of_items(1){}
+        key_hash(key_hash), address(value_address), num_of_items(1){}
+    HashTarget(size_t key_hash, size_t value_address, size_t num_of_items) : 
+        key_hash(key_hash), address(value_address), num_of_items(num_of_items){}
 
     size_t key_hash;
-    size_t value; 
+    size_t address; 
     size_t num_of_items;
 };
 
@@ -41,21 +45,29 @@ struct ShareMemDict {
     mapped_region* region;
     std::hash<std::string> hasher;
 
-    bool get(std::string to_hash, V& r_val){
-        void* offset = static_cast<char*>(region->get_address()) + offset_to_data;
+    bool get(std::string to_hash, V*& r_val, size_t& size){
+        char* offset = static_cast<char*>(region->get_address()) + offset_to_data;
         size_t actual_hash = hasher(to_hash);
         size_t hash_offset = PHF::hash(alg, to_hash);
 
-        size_t* hash_targ = (static_cast<size_t*>(offset) + 3 * hash_offset);
+        size_t* hash_targ = (reinterpret_cast<size_t*>(offset) + 3 * hash_offset);
+        size_t* address = hash_targ + 1;
+        size_t* num_eles = address + 1;
         if(*hash_targ != actual_hash){
             std::cout << "Hash not found: " << *hash_targ << " " << actual_hash << std::endl;
             r_val = 0;
             return false;
         }
-        size_t* hash_val = (static_cast<size_t*>(offset) + 3 *  alg->r);
-        float* data = reinterpret_cast<float*>(hash_val) + PHF::hash(alg, to_hash);
 
-        r_val = *data;
+        char* hash_val = offset + ((3 * sizeof(size_t)) *  alg->r) + *address;
+
+        V* data = reinterpret_cast<V*>(hash_val);
+        std::cout << "hash offset " << *address << std::endl;
+        std::cout << "num_eles " << *num_eles << std::endl;
+        std::cout << "DATA: " << *data << std::endl;
+
+        r_val = data;
+        size = *num_eles;
         return true;
     }
 
@@ -141,16 +153,14 @@ ShareMemDict<T> reset_shared_mem(std::string name){
     return load_shared_mem<T>(name);
 }
 
-float* write_binary(phf * p_hash, const std::map<std::string,float>& data){
-    /* size_t num = p_hash-> */
+void write_alg(phf * p_hash, FILE* pFile)
+{
     std::cout << "TOTAL: " << p_hash->r << std::endl;
     std::cout << "In hash : " << p_hash->m << std::endl;
     size_t bytes = sizeof(bool) + sizeof(phf_seed_t) + (3 * sizeof(size_t)) + sizeof(p_hash->g_op) +
         (sizeof(uint32_t) * p_hash->r);
     std::cout << "Size: " << bytes << std::endl;
 
-    FILE* pFile;
-    pFile = fopen("file.binary", "wb");
     fwrite(&(p_hash->nodiv), sizeof(bool), 1, pFile);
     fwrite(&(p_hash->seed), sizeof(phf_seed_t), 1, pFile);
     fwrite(&(p_hash->r), sizeof(size_t), 1, pFile);
@@ -158,6 +168,16 @@ float* write_binary(phf * p_hash, const std::map<std::string,float>& data){
     fwrite(&(p_hash->d_max), sizeof(size_t), 1, pFile);
     fwrite(&(p_hash->g_op), sizeof(p_hash->g_op), 1, pFile);
     fwrite(p_hash->g, sizeof(uint32_t), p_hash->r, pFile);
+}
+
+
+float* write_binary(phf * p_hash, const std::map<std::string,float>& data){
+    /* size_t num = p_hash-> */
+
+    FILE* pFile;
+    pFile = fopen("file.binary", "wb");
+
+    write_alg(p_hash, pFile);
 
     float* as_array = new float[p_hash->r];
     HashTarget* hash_targets = new HashTarget[p_hash->r];
@@ -168,12 +188,14 @@ float* write_binary(phf * p_hash, const std::map<std::string,float>& data){
         as_array[hash] = i->second;
         hash_targets[hash] = HashTarget(key_hash, hash);
     }
+
     for (size_t i = 0; i < p_hash->r; ++i){
         HashTarget* data = hash_targets++;
         fwrite(&((data)->key_hash), sizeof(size_t), 1, pFile);
-        fwrite(&(data)->value, sizeof(size_t), 1, pFile);
+        fwrite(&(data)->address, sizeof(size_t), 1, pFile);
         fwrite(&(data)->num_of_items, sizeof(size_t), 1, pFile);
     }
+
     float* iterator = as_array;
     for(size_t i = 0; i < p_hash->r; ++i){
         float * data = iterator++;
@@ -183,6 +205,55 @@ float* write_binary(phf * p_hash, const std::map<std::string,float>& data){
 
     return as_array;
 };
+
+int** write_binary(phf * p_hash, const std::map<std::string,std::vector<uint32_t>>& data)
+{
+    /* size_t num = p_hash-> */
+    FILE* pFile;
+    pFile = fopen("file.binary", "wb");
+    
+    write_alg(p_hash, pFile);
+
+    int** as_array = new int*[p_hash->r];
+    HashTarget* hash_targets = new HashTarget[p_hash->r];
+    std::hash<std::string> hasher;
+    for (auto i = data.begin(); i != data.end(); ++i) {
+        size_t hash = PHF::hash(p_hash, i->first);
+        size_t key_hash = hasher(i->first);
+        hash_targets[hash] = HashTarget(key_hash, hash, i->second.size());
+        
+        as_array[hash] = new int[i->second.size()];
+        size_t iter = 0;
+        for (auto v = i->second.begin(); v != i->second.end(); ++v) {
+            as_array[hash][iter] = *v;
+            std::cout << *v << std::endl;
+            iter++;
+        }
+    }
+
+    // For vectors, need to reset value address
+    size_t current_value_address_offset = 0;
+    HashTarget* data_pointer = hash_targets;
+    for (size_t i = 0; i < p_hash->r; ++i){
+        HashTarget* data = data_pointer++;
+        data->address = current_value_address_offset;
+
+        fwrite(&(data)->key_hash, sizeof(size_t), 1, pFile);
+        fwrite(&(data)->address, sizeof(size_t), 1, pFile);
+        fwrite(&(data)->num_of_items, sizeof(size_t), 1, pFile);
+
+        current_value_address_offset += sizeof(uint32_t) * data->num_of_items;
+    }
+
+    int** iterator = as_array;
+    for(size_t i = 0; i < p_hash->r; ++i){
+        HashTarget target = hash_targets[i];
+        fwrite(iterator[i], sizeof(data), target.num_of_items, pFile);
+    }
+    fclose(pFile);
+
+    return as_array;
+}
 
 phf* read_binary_hash(){
     FILE* pFile = std::fopen("file.binary", "rb");
